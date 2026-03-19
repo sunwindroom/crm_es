@@ -1,0 +1,21 @@
+{
+  "name": "enterprise-crm-system",
+  "version": "2.0.0",
+  "description": "企业级CRM系统 - 专为IT企业设计",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "backend:dev": "cd packages/backend && npm run start:dev",
+    "backend:build": "cd packages/backend && npm run build",
+    "frontend:dev": "cd packages/frontend && npm run dev",
+    "frontend:build": "cd packages/frontend && npm run build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up -d --build"
+  },
+  "keywords": ["crm", "enterprise", "it-service", "nestjs", "vue3"],
+  "author": "CRM Team",
+  "license": "MIT"
+}
