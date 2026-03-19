@@ -1,0 +1,54 @@
+# ============================================================
+# 企业级CRM系统 - 后端 Dockerfile
+# ============================================================
+
+# 构建阶段
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# 复制依赖文件
+COPY packages/backend/package*.json ./
+
+# 安装所有依赖（包括devDependencies用于构建）
+RUN npm install --include=dev
+
+# 复制源码
+COPY packages/backend/ .
+
+# 构建
+RUN npm run build
+
+# 生产阶段
+FROM node:20-alpine AS production
+
+# 安装必要系统工具
+RUN apk add --no-cache curl tzdata && \
+    cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/Shanghai" > /etc/timezone
+
+WORKDIR /app
+
+# 复制依赖文件
+COPY packages/backend/package*.json ./
+
+# 只安装生产依赖
+RUN npm install --only=production
+
+# 从构建阶段复制编译产物
+COPY --from=builder /app/dist ./dist
+
+# 创建日志目录
+RUN mkdir -p logs && \
+    addgroup -S crm && \
+    adduser -S crm -G crm && \
+    chown -R crm:crm /app
+
+USER crm
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:3000/api/v1/health || exit 1
+
+CMD ["node", "dist/main"]
