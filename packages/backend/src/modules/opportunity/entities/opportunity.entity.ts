@@ -15,6 +15,7 @@ export class Opportunity {
   @Column({ name: 'customer_id' }) customerId: string;
   @ManyToOne(() => Customer) @JoinColumn({ name: 'customer_id' }) customer: Customer;
   @Column({ name: 'lead_id', nullable: true }) leadId: string;
+  @Column({ name: 'project_id', nullable: true }) projectId: string;
   @Column() name: string;
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 }) amount: number;
   @Column({ type: 'enum', enum: OpportunityStage, default: OpportunityStage.INITIAL }) stage: OpportunityStage;

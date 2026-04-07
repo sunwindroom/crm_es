@@ -24,6 +24,8 @@ export class Lead {
   @Column({ type: 'text', nullable: true }) requirement: string;
   @Column({ type: 'decimal', nullable: true }) budget: number;
   @Column({ type: 'enum', enum: LeadStatus, default: LeadStatus.NEW }) status: LeadStatus;
+  @Column({ name: 'owner_id', nullable: true }) ownerId: string;
+  @ManyToOne(() => User) @JoinColumn({ name: 'owner_id' }) ownerUser: User;
   @Column({ name: 'assigned_to', nullable: true }) assignedTo: string;
   @ManyToOne(() => User) @JoinColumn({ name: 'assigned_to' }) assignedUser: User;
   @Column({ name: 'assigned_at', type: 'timestamp', nullable: true }) assignedAt: Date;
