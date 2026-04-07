@@ -67,8 +67,8 @@
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleView(row)">详情</el-button>
             <el-button v-if="canEditLead(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
-            <el-button v-if="hasPermission('lead_assign') && canEditLead(row)" type="success" link size="small" @click="handleAssign(row)">分配</el-button>
-            <el-button v-if="hasPermission('lead_convert') && row.status !== 'converted'" type="warning" link size="small" @click="handleConvert(row)">转化</el-button>
+            <el-button v-if="canAssignLead() && canEditLead(row)" type="success" link size="small" @click="handleAssign(row)">分配</el-button>
+            <el-button v-if="canConvertLead() && row.status !== 'converted'" type="warning" link size="small" @click="handleConvert(row)">转化</el-button>
             <el-button v-if="canDeleteLead(row)" type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -174,8 +174,27 @@
       </template>
     </el-dialog>
 
+    <!-- 转化对话框 -->
+    <el-dialog v-model="convertVisible" title="转化线索" width="600px" @close="resetConvertForm">
+      <el-form ref="convertFormRef" :model="convertForm" :rules="convertRules" label-width="100px">
+        <el-form-item label="客户名称" prop="customerName">
+          <el-input v-model="convertForm.customerName" placeholder="请输入客户名称" />
+        </el-form-item>
+        <el-form-item label="商机名称" prop="opportunityName">
+          <el-input v-model="convertForm.opportunityName" placeholder="请输入商机名称" />
+        </el-form-item>
+        <el-form-item label="商机金额" prop="opportunityAmount">
+          <el-input-number v-model="convertForm.opportunityAmount" :min="0" :precision="2" style="width:100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="convertVisible = false">取消</el-button>
+        <el-button type="primary" :loading="converting" @click="handleConvertSubmit">确定转化</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 详情抽屉 -->
-    <el-drawer v-model="detailVisible" title="线索详情" size="500px">
+    <el-drawer v-model="detailVisible" title="线索详情" size="600px">
       <template v-if="currentLead">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="姓名">{{ currentLead.name }}</el-descriptions-item>
@@ -193,8 +212,46 @@
           <el-descriptions-item label="需求说明" :span="2">{{ currentLead.requirement || '-' }}</el-descriptions-item>
           <el-descriptions-item v-if="currentLead.lostReason" label="流失原因" :span="2">{{ currentLead.lostReason }}</el-descriptions-item>
         </el-descriptions>
+
+        <!-- 跟踪记录 -->
+        <div style="margin-top: 20px">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
+            <h3>跟踪记录</h3>
+            <el-button type="primary" size="small" @click="handleOpenFollowUp">添加跟踪记录</el-button>
+          </div>
+          <el-timeline v-if="followUps.length > 0">
+            <el-timeline-item v-for="item in followUps" :key="item.id" :timestamp="formatDate(item.created_at)" placement="top">
+              <el-card>
+                <p style="margin: 0">{{ item.content }}</p>
+                <p v-if="item.next_action" style="margin: 8px 0 0 0; color: #909399; font-size: 12px">
+                  下一步计划：{{ item.next_action }}
+                </p>
+                <p style="margin: 4px 0 0 0; color: #909399; font-size: 12px">
+                  记录人：{{ item.creator_name || '未知' }}
+                </p>
+              </el-card>
+            </el-timeline-item>
+          </el-timeline>
+          <el-empty v-else description="暂无跟踪记录" />
+        </div>
       </template>
     </el-drawer>
+
+    <!-- 跟踪记录对话框 -->
+    <el-dialog v-model="followUpVisible" title="添加跟踪记录" width="600px">
+      <el-form ref="followUpFormRef" :model="followUpForm" :rules="followUpRules" label-width="100px">
+        <el-form-item label="跟进内容" prop="content">
+          <el-input v-model="followUpForm.content" type="textarea" :rows="4" placeholder="请输入跟进内容" />
+        </el-form-item>
+        <el-form-item label="下一步计划">
+          <el-input v-model="followUpForm.nextAction" type="textarea" :rows="2" placeholder="请输入下一步计划（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="followUpVisible = false">取消</el-button>
+        <el-button type="primary" :loading="followUpLoading" @click="handleAddFollowUp">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -206,7 +263,7 @@ import dayjs from 'dayjs'
 import { leadApi } from '@/api/lead'
 import { userApi } from '@/api/user'
 import type { Lead, User } from '@/types'
-import { hasPermission, canEditLead, canDeleteLead } from '@/utils/permission'
+import { hasPermission, canEditLead, canDeleteLead, canAssignLead, canConvertLead } from '@/utils/permission'
 
 // ─── 常量 ─────────────────────────────────────────────────
 const statusOptions = [
@@ -238,8 +295,10 @@ const getStatusType = (s: string): any => ({
 const loading = ref(false)
 const submitting = ref(false)
 const assigning = ref(false)
+const converting = ref(false)
 const dialogVisible = ref(false)
 const assignVisible = ref(false)
+const convertVisible = ref(false)
 const detailVisible = ref(false)
 const dialogTitle = ref('新增线索')
 const tableData = ref<Lead[]>([])
@@ -248,6 +307,7 @@ const salesUsers = ref<User[]>([])
 const currentLead = ref<Lead | null>(null)
 const formRef = ref<FormInstance>()
 const assignFormRef = ref<FormInstance>()
+const convertFormRef = ref<FormInstance>()
 
 const searchForm = reactive({ keyword: '', status: '', source: '' })
 const pagination = reactive({ page: 1, pageSize: 10, total: 0 })
@@ -256,6 +316,7 @@ const formData = reactive({
   source: 'other', status: 'new', industry: '', region: '', requirement: ''
 })
 const assignForm = reactive({ leadIds: [] as string[], userId: '', remark: '' })
+const convertForm = reactive({ customerName: '', opportunityName: '', opportunityAmount: 0 })
 
 const formRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -267,6 +328,11 @@ const formRules = {
 }
 const assignRules = {
   userId: [{ required: true, message: '请选择销售人员', trigger: 'change' }],
+}
+const convertRules = {
+  customerName: [{ required: true, message: '请输入客户名称', trigger: 'blur' }],
+  opportunityName: [{ required: true, message: '请输入商机名称', trigger: 'blur' }],
+  opportunityAmount: [{ required: true, message: '请输入商机金额', trigger: 'blur' }],
 }
 
 // ─── 方法 ─────────────────────────────────────────────────
@@ -300,7 +366,62 @@ const handleReset = () => { Object.assign(searchForm, { keyword: '', status: '',
 const handleSelectionChange = (rows: Lead[]) => { selectedLeads.value = rows }
 
 const handleAdd = () => { dialogTitle.value = '新增线索'; dialogVisible.value = true }
-const handleView = (row: Lead) => { currentLead.value = row; detailVisible.value = true }
+const handleView = async (row: Lead) => {
+  currentLead.value = row
+  detailVisible.value = true
+  // 加载跟踪记录
+  await loadFollowUps(row.id)
+}
+
+// ─── 跟踪记录相关 ─────────────────────────────────────────────────
+const followUps = ref<any[]>([])
+const followUpVisible = ref(false)
+const followUpLoading = ref(false)
+const followUpFormRef = ref<FormInstance>()
+const followUpForm = reactive({
+  content: '',
+  nextAction: '',
+})
+const followUpRules = {
+  content: [{ required: true, message: '请输入跟进内容', trigger: 'blur' }],
+}
+
+const loadFollowUps = async (leadId: string) => {
+  try {
+    const res = await leadApi.getFollowUps(leadId)
+    // 响应拦截器已经处理了data字段，直接使用res
+    followUps.value = Array.isArray(res) ? res : []
+  } catch (error) {
+    console.error('加载跟踪记录失败:', error)
+    followUps.value = []
+  }
+}
+
+const handleOpenFollowUp = () => {
+  Object.assign(followUpForm, { content: '', nextAction: '' })
+  followUpVisible.value = true
+}
+
+const handleAddFollowUp = async () => {
+  if (!followUpFormRef.value) return
+  if (!currentLead.value) return
+
+  const valid = await followUpFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  followUpLoading.value = true
+  try {
+    await leadApi.addFollowUp(currentLead.value.id, followUpForm)
+    ElMessage.success('添加跟踪记录成功')
+    followUpVisible.value = false
+    // 重新加载跟踪记录
+    await loadFollowUps(currentLead.value.id)
+  } catch (error: any) {
+    ElMessage.error(error.response?.data?.message || '添加跟踪记录失败')
+  } finally {
+    followUpLoading.value = false
+  }
+}
 const handleEdit = (row: Lead) => {
   dialogTitle.value = '编辑线索'
   Object.assign(formData, { ...row })
@@ -324,13 +445,11 @@ const handleBatchAssign = async () => {
 }
 
 const handleConvert = (row: Lead) => {
-  ElMessageBox.confirm(`确认将线索"${row.name}"转化为客户吗？`, '转化确认', {
-    type: 'warning',
-  }).then(async () => {
-    await leadApi.convert(row.id, { customerId: '' })
-    ElMessage.success('转化成功')
-    fetchData()
-  })
+  currentLead.value = row
+  convertForm.customerName = row.company
+  convertForm.opportunityName = `${row.company} - 商机`
+  convertForm.opportunityAmount = row.budget || 0
+  convertVisible.value = true
 }
 
 const handleDelete = (row: Lead) => {
@@ -376,6 +495,23 @@ const resetForm = () => {
   Object.assign(formData, { id: '', name: '', company: '', phone: '', email: '', source: 'other', status: 'new', industry: '', region: '', requirement: '' })
 }
 const resetAssignForm = () => { assignFormRef.value?.resetFields() }
+
+const handleConvertSubmit = async () => {
+  const valid = await convertFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  converting.value = true
+  try {
+    await leadApi.convert(currentLead.value!.id, convertForm)
+    ElMessage.success('转化成功')
+    convertVisible.value = false
+    fetchData()
+  } finally { converting.value = false }
+}
+
+const resetConvertForm = () => {
+  convertFormRef.value?.resetFields()
+  Object.assign(convertForm, { customerName: '', opportunityName: '', opportunityAmount: 0 })
+}
 
 onMounted(fetchData)
 </script>

@@ -129,7 +129,7 @@
           <el-col :span="12">
             <el-form-item label="角色" prop="role">
               <el-select v-model="form.role" style="width:100%">
-                <el-option v-for="r in getAssignableRoles()" :key="r" :label="getRoleDisplayName(r)" :value="r" />
+                <el-option v-for="r in getAllRoles()" :key="r.value" :label="r.label" :value="r.value" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -184,7 +184,7 @@ const search = reactive({ keyword: '', role: '', status: '' })
 const form = reactive({
   username: '', password: '', confirmPassword: '', name: '',
   phone: '', email: '', department: '', position: '',
-  role: 'sales', superiorId: '', status: 'active'
+  role: '', superiorId: '', status: 'active'
 })
 
 const superiorOptions = computed(() =>

@@ -54,8 +54,14 @@ const saveInfo = async () => {
 const changePwd = async () => {
   const v = await pwdRef.value?.validate().catch(() => false); if (!v) return
   savingPwd.value = true
-  try { await request.post('/users/change-password', pwd); ElMessage.success('密码修改成功，请重新登录'); auth.logout() }
-  catch { ElMessage.error('密码修改失败') }
+  try {
+    await request.post('/users/change-password', {
+      oldPassword: pwd.oldPwd,
+      newPassword: pwd.newPwd
+    });
+    ElMessage.success('密码修改成功，请重新登录');
+    auth.logout();
+  } catch { ElMessage.error('密码修改失败') }
   finally { savingPwd.value = false }
 }
 </script>

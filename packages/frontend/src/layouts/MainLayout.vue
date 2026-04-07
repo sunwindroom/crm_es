@@ -69,11 +69,26 @@ const route = useRoute(); const router = useRouter(); const auth = useAuthStore(
 const collapsed = ref(false)
 const menuRoutes = computed(() => {
   const main = router.options.routes.find(r => r.path === '/')
-  return (main?.children || []).filter(r => !r.meta?.hidden).map(r => ({
-    ...r,
-    path: r.path ? `/${r.path}` : '/',
-    children: r.children?.filter(c => !c.meta?.hidden).map(c => ({ ...c, path: `/${r.path}/${c.path}` }))
-  }))
+  const children = main?.children || []
+
+  return children.filter(r => !r.meta?.hidden).map(r => {
+    const route = {
+      ...r,
+      path: r.path ? `/${r.path}` : '/',
+    }
+
+    // 处理子路由
+    if (r.children && r.children.length > 0) {
+      route.children = r.children
+        .filter(c => !c.meta?.hidden)
+        .map(c => ({
+          ...c,
+          path: `/${r.path}/${c.path}`
+        }))
+    }
+
+    return route
+  })
 })
 const activeMenu = computed(() => route.path)
 const breadcrumbs = computed(() => route.matched.filter(m => m.meta?.title).map(m => ({ path: m.path, title: m.meta?.title as string })))

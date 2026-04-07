@@ -140,6 +140,52 @@
         <el-button type="primary" :loading="saving" @click="save">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 赢单对话框 -->
+    <el-dialog v-model="winVisible" title="商机赢单" width="600px" @close="resetWinForm">
+      <el-form ref="winFormRef" :model="winForm" :rules="winRules" label-width="110px">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="项目名称" prop="projectName">
+              <el-input v-model="winForm.projectName" placeholder="请输入项目名称" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="合同名称" prop="contractName">
+              <el-input v-model="winForm.contractName" placeholder="请输入合同名称" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="合同金额" prop="contractAmount">
+              <el-input-number v-model="winForm.contractAmount" :min="0" :precision="2" style="width:100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="回款期数" prop="paymentPlanCount">
+              <el-input-number v-model="winForm.paymentPlanCount" :min="1" :max="12" style="width:100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="开始日期" prop="startDate">
+              <el-date-picker v-model="winForm.startDate" type="date" value-format="YYYY-MM-DD" style="width:100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="结束日期" prop="endDate">
+              <el-date-picker v-model="winForm.endDate" type="date" value-format="YYYY-MM-DD" style="width:100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="winVisible = false">取消</el-button>
+        <el-button type="primary" :loading="winning" @click="handleWinSubmit">确定赢单</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -163,12 +209,16 @@ const getStageName = (s: string) => stageOptions.find(o => o.value === s)?.label
 
 const loading = ref(false)
 const saving = ref(false)
+const winning = ref(false)
 const visible = ref(false)
+const winVisible = ref(false)
 const editId = ref('')
+const currentOpportunity = ref<any>(null)
 const tableData = ref<any[]>([])
 const funnelData = ref<any[]>([])
 const customerOptions = ref<any[]>([])
 const formRef = ref<FormInstance>()
+const winFormRef = ref<FormInstance>()
 const page = reactive({ current: 1, size: 10, total: 0 })
 const search = reactive({ keyword: '', stage: '', status: '' })
 
@@ -181,6 +231,18 @@ const rules = {
   customerId: [{ required: true, message: '请选择客户', trigger: 'change' }],
   amount: [{ required: true, message: '请输入金额', trigger: 'blur' }],
   stage: [{ required: true, message: '请选择阶段', trigger: 'change' }],
+}
+
+const winForm = reactive({
+  projectName: '', contractName: '', contractAmount: 0,
+  paymentPlanCount: 3, startDate: '', endDate: ''
+})
+const winRules = {
+  projectName: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
+  contractAmount: [{ required: true, message: '请输入合同金额', trigger: 'blur' }],
+  paymentPlanCount: [{ required: true, message: '请输入回款期数', trigger: 'blur' }],
+  startDate: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
+  endDate: [{ required: true, message: '请选择结束日期', trigger: 'change' }],
 }
 
 const fetchData = async () => {
@@ -217,12 +279,14 @@ const handleEdit = (row: any) => {
   visible.value = true
 }
 const handleWon = (row: any) => {
-  ElMessageBox.confirm(`确认"${row.name}"赢单？`, '赢单确认', { type: 'success' })
-    .then(async () => {
-      await request.post(`/opportunities/${row.id}/win`)
-      ElMessage.success('已标记为赢单')
-      fetchData()
-    })
+  currentOpportunity.value = row
+  winForm.projectName = `${row.name} - 项目`
+  winForm.contractName = `${row.name} - 合同`
+  winForm.contractAmount = row.amount
+  winForm.paymentPlanCount = 3
+  winForm.startDate = ''
+  winForm.endDate = ''
+  winVisible.value = true
 }
 const handleLost = (row: any) => {
   ElMessageBox.prompt('请输入输单原因', '输单', { inputType: 'textarea' })
@@ -260,6 +324,24 @@ const save = async () => {
 const reset = () => {
   formRef.value?.resetFields()
   Object.assign(form, { name: '', customerId: '', amount: 0, stage: 'initial', probability: 30, expectedCloseDate: '', description: '' })
+}
+
+const handleWinSubmit = async () => {
+  const v = await winFormRef.value?.validate().catch(() => false)
+  if (!v) return
+  winning.value = true
+  try {
+    await request.post(`/opportunities/${currentOpportunity.value.id}/win`, winForm)
+    ElMessage.success('赢单成功，已创建项目、合同和回款计划')
+    winVisible.value = false
+    fetchData()
+    fetchFunnel()
+  } finally { winning.value = false }
+}
+
+const resetWinForm = () => {
+  winFormRef.value?.resetFields()
+  Object.assign(winForm, { projectName: '', contractName: '', contractAmount: 0, paymentPlanCount: 3, startDate: '', endDate: '' })
 }
 
 onMounted(() => { fetchData(); fetchFunnel() })

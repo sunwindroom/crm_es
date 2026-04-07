@@ -10,4 +10,7 @@ export const leadApi = {
   batchAssign: (leadIds: string[], data: { userId: string; remark?: string }) => request.post('/leads/batch-assign', { leadIds, ...data }),
   convert: (id: string, data: any) => request.post<Lead>(`/leads/${id}/convert`, data),
   markAsLost: (id: string, reason: string) => request.post<Lead>(`/leads/${id}/lost`, { reason }),
+  // 跟踪记录相关
+  getFollowUps: (id: string) => request.get<any[]>(`/leads/${id}/follow-ups`),
+  addFollowUp: (id: string, data: { content: string; nextAction?: string }) => request.post(`/leads/${id}/follow-ups`, data),
 }

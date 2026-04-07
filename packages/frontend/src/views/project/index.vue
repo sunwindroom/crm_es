@@ -59,13 +59,20 @@
         <el-table-column prop="managerUser.name" label="项目经理" width="100">
           <template #default="{ row }">{{ row.managerUser?.name || '-' }}</template>
         </el-table-column>
+        <el-table-column prop="csManagerUser.name" label="客服经理" width="100">
+          <template #default="{ row }">{{ row.csManagerUser?.name || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="startDate" label="开始日期" width="110" />
         <el-table-column prop="endDate" label="结束日期" width="110" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="handleView(row)">详情</el-button>
-            <el-button v-if="hasPermission('project_edit')" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="canEditProject(row)" type="primary" link size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button v-if="canManageMembers(row)" type="primary" link size="small" @click="handleMembers(row)">成员</el-button>
+            <el-button v-if="canAssignManager" type="warning" link size="small" @click="handleAssignManager(row)">分配PM</el-button>
+            <el-button v-if="canEvaluateWorkload(row)" type="success" link size="small" @click="handleEvaluateWorkload(row)">评估工时</el-button>
             <el-button type="success" link size="small" @click="handleMilestone(row)">里程碑</el-button>
+            <el-button type="info" link size="small" @click="handleTimesheet(row)">工时</el-button>
             <el-button v-if="hasPermission('project_delete')" type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -249,15 +256,89 @@
         </el-descriptions>
       </template>
     </el-drawer>
+
+    <!-- 分配项目经理对话框 -->
+    <el-dialog v-model="assignManagerVisible" title="分配项目经理" width="500px">
+      <el-form label-width="100px">
+        <el-form-item label="当前项目">
+          <el-input :value="currentProject?.name" disabled />
+        </el-form-item>
+        <el-form-item label="当前PM">
+          <el-input :value="currentProject?.managerUser?.name || '未分配'" disabled />
+        </el-form-item>
+        <el-form-item label="新项目经理">
+          <el-select
+            v-model="selectedManagerId"
+            filterable
+            placeholder="请选择项目经理"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="user in projectManagerOptions"
+              :key="user.id"
+              :label="user.name"
+              :value="user.id"
+            >
+              <div style="display: flex; justify-content: space-between;">
+                <span>{{ user.name }}</span>
+                <span style="color: #909399; font-size: 12px;">{{ user.department || '-' }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="assignManagerVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assigningManager" @click="saveAssignManager">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 工时评估对话框 -->
+    <el-dialog v-model="workloadVisible" title="项目工时评估" width="600px">
+      <el-form ref="workloadFormRef" :model="workloadForm" :rules="workloadRules" label-width="120px">
+        <el-form-item label="项目名称">
+          <el-input :value="currentProject?.name" disabled />
+        </el-form-item>
+        <el-form-item label="合同周期">
+          <el-input :value="getContractPeriod()" disabled />
+        </el-form-item>
+        <el-form-item label="评估工时" prop="estimatedHours">
+          <el-input-number v-model="workloadForm.estimatedHours" :min="1" :max="100000" style="width: 100%" />
+          <span style="margin-left: 10px; color: #909399;">小时</span>
+        </el-form-item>
+        <el-form-item label="投入人力" prop="estimatedPeople">
+          <el-input-number v-model="workloadForm.estimatedPeople" :min="1" :max="100" style="width: 100%" />
+          <span style="margin-left: 10px; color: #909399;">人</span>
+        </el-form-item>
+        <el-form-item label="评估说明">
+          <el-input v-model="workloadForm.workloadEvaluation" type="textarea" :rows="4" placeholder="请输入工作量评估说明" />
+        </el-form-item>
+        <el-form-item v-if="currentProject?.evaluationDate" label="上次评估">
+          <div style="color: #909399;">
+            <div>评估时间：{{ currentProject.evaluationDate }}</div>
+            <div>评估人：{{ currentProject.evaluator?.name || '-' }}</div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="workloadVisible = false">取消</el-button>
+        <el-button type="primary" :loading="evaluatingWorkload" @click="saveWorkloadEvaluation">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
 import { request } from '@/utils/request'
 import { hasPermission } from '@/utils/permission'
+import { projectApi } from '@/api/project'
+import { userApi } from '@/api/user'
+
+const router = useRouter()
 
 // ─── 常量 ────────────────────────────────────────────────────
 const statusOptions = [
@@ -300,17 +381,97 @@ const formVisible = ref(false)
 const msVisible   = ref(false)
 const msFormVisible = ref(false)
 const detailVisible = ref(false)
+const assignManagerVisible = ref(false)
+const assigningManager = ref(false)
+const workloadVisible = ref(false)
+const evaluatingWorkload = ref(false)
 const editId      = ref('')
 const msEditId    = ref('')
 const tableData   = ref<any[]>([])
 const milestones  = ref<any[]>([])
 const custOptions = ref<any[]>([])
 const pmOptions   = ref<any[]>([])
+const projectManagerOptions = ref<any[]>([])
 const currentProject = ref<any>(null)
+const selectedManagerId = ref('')
 const formRef  = ref<FormInstance>()
 const msFormRef = ref<FormInstance>()
+const workloadFormRef = ref<FormInstance>()
 const pg = reactive({ current: 1, size: 10, total: 0 })
 const search = reactive({ keyword: '', status: '', type: '' })
+
+// 工时评估表单
+const workloadForm = reactive({
+  estimatedHours: 0,
+  estimatedPeople: 1,
+  workloadEvaluation: '',
+})
+
+const workloadRules = {
+  estimatedHours: [{ required: true, message: '请输入评估工时', trigger: 'blur' }],
+  estimatedPeople: [{ required: true, message: '请输入投入人力', trigger: 'blur' }],
+}
+
+// 权限判断：是否可以分配项目经理（CTO、Admin、CEO）
+const canAssignManager = computed(() => {
+  const userStr = localStorage.getItem('user')
+  if (!userStr) return false
+  const user = JSON.parse(userStr)
+  return ['cto', 'admin', 'ceo'].includes(user.role)
+})
+
+// 权限判断：是否可以评估工时（项目经理、CTO、Admin、CEO）
+const canEvaluateWorkload = (row: any) => {
+  const userStr = localStorage.getItem('user')
+  if (!userStr) return false
+  const user = JSON.parse(userStr)
+
+  // CTO、Admin、CEO可以评估所有项目
+  if (['cto', 'admin', 'ceo'].includes(user.role)) {
+    return true
+  }
+
+  // 项目经理只能评估自己管理的项目
+  const managerId = String(row.manager || '')
+  const userId = String(user.id || '')
+  return managerId === userId && managerId !== ''
+}
+
+// 权限判断：是否可以编辑项目（项目经理、CTO、Admin、CEO）
+const canEditProject = (row: any) => {
+  const userStr = localStorage.getItem('user')
+  if (!userStr) return false
+  const user = JSON.parse(userStr)
+
+  // CTO、Admin、CEO可以编辑所有项目
+  if (['cto', 'admin', 'ceo'].includes(user.role)) {
+    return true
+  }
+
+  // 项目经理只能编辑自己管理的项目
+  // 确保类型一致，都转为字符串比较
+  const managerId = String(row.manager || '')
+  const userId = String(user.id || '')
+  return managerId === userId && managerId !== ''
+}
+
+// 权限判断：是否可以管理项目成员（项目经理、CTO、Admin、CEO）
+const canManageMembers = (row: any) => {
+  const userStr = localStorage.getItem('user')
+  if (!userStr) return false
+  const user = JSON.parse(userStr)
+
+  // CTO、Admin、CEO可以管理所有项目的成员
+  if (['cto', 'admin', 'ceo'].includes(user.role)) {
+    return true
+  }
+
+  // 项目经理只能管理自己项目的成员
+  // 确保类型一致，都转为字符串比较
+  const managerId = String(row.manager || '')
+  const userId = String(user.id || '')
+  return managerId === userId && managerId !== ''
+}
 
 const form = reactive({
   name: '', customerId: '', type: 'development', status: 'planning',
@@ -395,6 +556,14 @@ const handleView = (row: any) => {
   detailVisible.value = true
 }
 
+const handleMembers = (row: any) => {
+  router.push(`/projects/${row.id}/members`)
+}
+
+const handleTimesheet = (row: any) => {
+  router.push(`/projects/${row.id}/timesheet`)
+}
+
 const handleEdit = async (row: any) => {
   await fetchPmOptions()
   editId.value = row.id
@@ -413,6 +582,85 @@ const handleDelete = async (row: any) => {
   await request.delete(`/projects/${row.id}`)
   ElMessage.success('删除成功')
   fetchData()
+}
+
+// ─── 分配项目经理 ───────────────────────────────────────────────
+const handleAssignManager = async (row: any) => {
+  currentProject.value = row
+  selectedManagerId.value = row.manager || ''
+  await loadProjectManagers()
+  assignManagerVisible.value = true
+}
+
+const loadProjectManagers = async () => {
+  try {
+    const response = await userApi.getList({ role: 'project_manager', status: 'active', pageSize: 1000 })
+    // 后端返回的是 { users: [], total: 0 } 格式
+    projectManagerOptions.value = response.users || response.items || []
+  } catch (error: any) {
+    ElMessage.error(error.message || '加载项目经理列表失败')
+  }
+}
+
+const saveAssignManager = async () => {
+  if (!selectedManagerId.value) {
+    ElMessage.warning('请选择项目经理')
+    return
+  }
+
+  assigningManager.value = true
+  try {
+    await projectApi.assignManager(currentProject.value.id, selectedManagerId.value)
+    ElMessage.success('项目经理分配成功')
+    assignManagerVisible.value = false
+    fetchData()
+  } catch (error: any) {
+    ElMessage.error(error.message || '分配失败')
+  } finally {
+    assigningManager.value = false
+  }
+}
+
+// 获取合同周期
+const getContractPeriod = () => {
+  if (!currentProject.value) return '-'
+  const start = currentProject.value.startDate
+  const end = currentProject.value.endDate
+  if (!start || !end) return '-'
+
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+  const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+  const months = Math.floor(days / 30)
+
+  return `${start} 至 ${end}（约${months}个月，${days}天）`
+}
+
+// 打开工时评估对话框
+const handleEvaluateWorkload = (row: any) => {
+  currentProject.value = row
+  workloadForm.estimatedHours = row.estimatedHours || 0
+  workloadForm.estimatedPeople = row.estimatedPeople || 1
+  workloadForm.workloadEvaluation = row.workloadEvaluation || ''
+  workloadVisible.value = true
+}
+
+// 保存工时评估
+const saveWorkloadEvaluation = async () => {
+  const v = await workloadFormRef.value?.validate().catch(() => false)
+  if (!v) return
+
+  evaluatingWorkload.value = true
+  try {
+    await request.put(`/projects/${currentProject.value.id}/evaluate-workload`, workloadForm)
+    ElMessage.success('工时评估成功')
+    workloadVisible.value = false
+    fetchData()
+  } catch (error: any) {
+    ElMessage.error(error.message || '评估失败')
+  } finally {
+    evaluatingWorkload.value = false
+  }
 }
 
 const save = async () => {
