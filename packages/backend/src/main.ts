@@ -3,7 +3,9 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { PerformanceInterceptor } from './common/interceptors/performance.interceptor';
 import { LoggerService } from './common/services/logger.service';
+import { MonitoringService } from './modules/monitoring/monitoring.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -25,6 +27,7 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new TransformInterceptor());
+  app.useGlobalInterceptors(new PerformanceInterceptor(app.get(MonitoringService)));
 
   const port = process.env.APP_PORT || 3000;
   await app.listen(port, '0.0.0.0');

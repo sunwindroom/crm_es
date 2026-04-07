@@ -11,6 +11,12 @@ import { OpportunityModule } from './modules/opportunity/opportunity.module';
 import { ContractModule } from './modules/contract/contract.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { RoleModule } from './modules/role/role.module';
+import { ReportModule } from './modules/report/report.module';
+import { HealthModule } from './modules/health/health.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { NotificationModule } from './modules/notification/notification.module';
+import { CommonModule } from './common/common.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { databaseConfig } from './config/database.config';
 import { redisConfig } from './config/redis.config';
@@ -41,6 +47,11 @@ import { SnakeNamingStrategy } from './common/snake-naming.strategy';
       }),
       inject: [ConfigService],
     }),
+    CommonModule, // 全局模块，提供DataPermissionService
+    HealthModule, // 健康检查模块
+    MonitoringModule, // 监控告警模块
+    AuditModule, // 审计日志模块
+    NotificationModule, // 通知模块
     AuthModule,
     UserModule,
     LeadModule,
@@ -50,6 +61,7 @@ import { SnakeNamingStrategy } from './common/snake-naming.strategy';
     ContractModule,
     PaymentModule,
     RoleModule,
+    ReportModule,
   ],
   controllers: [AppController],
   providers: [
