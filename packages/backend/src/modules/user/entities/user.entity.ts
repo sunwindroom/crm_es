@@ -6,6 +6,8 @@ export enum UserRole {
   ADMIN = 'admin', CEO = 'ceo', CTO = 'cto', CMO = 'cmo',
   SALES_MANAGER = 'sales_manager', SALES = 'sales',
   PROJECT_MANAGER = 'project_manager', BUSINESS = 'business', FINANCE = 'finance',
+  ENGINEER = 'engineer',
+  CUSTOMER_SERVICE_MANAGER = 'customer_service_manager',
 }
 
 @Entity('users')

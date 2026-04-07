@@ -25,6 +25,9 @@ export class UserController {
   @Get('superior')
   async getSuperior(@Request() req: any) { return this.userService.getSuperior(req.user.userId); }
 
+  @Get('assignable')
+  async getAssignable(@Request() req: any) { return this.userService.getAssignableUsers(req.user.userId); }
+
   @Get(':id')
   async findOne(@Param('id') id: string) { return this.userService.findOne(id); }
 
@@ -40,6 +43,19 @@ export class UserController {
   async resetPassword(@Param('id') id: string, @Body('newPassword') newPassword: string) {
     await this.userService.resetPassword(id, newPassword);
     return { message: '密码重置成功' };
+  }
+
+  @Post('change-password')
+  async changePassword(
+    @Request() req: any,
+    @Body() body: { oldPassword: string; newPassword: string },
+  ) {
+    await this.userService.changePassword(
+      req.user.userId,
+      body.oldPassword,
+      body.newPassword,
+    );
+    return { message: '密码修改成功' };
   }
 
   @Delete(':id')

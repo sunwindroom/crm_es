@@ -1,12 +1,16 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { User, UserRole, UserStatus } from './entities/user.entity';
+import { DataPermissionService } from '../../common/services/data-permission.service';
 
 @Injectable()
 export class UserService {
-  constructor(@InjectRepository(User) private repo: Repository<User>) {}
+  constructor(
+    @InjectRepository(User) private repo: Repository<User>,
+    private dataPermissionService: DataPermissionService,
+  ) {}
 
   async create(dto: any): Promise<User> {
     await this.checkUnique(dto);
@@ -104,6 +108,25 @@ export class UserService {
     await this.repo.save(user);
   }
 
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.repo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('用户不存在');
+
+    // 验证旧密码
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      throw new BadRequestException('旧密码不正确');
+    }
+
+    // 更新新密码
+    user.password = await bcrypt.hash(newPassword, 10);
+    await this.repo.save(user);
+  }
+
   async updateStatus(id: string, status: UserStatus): Promise<User> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('用户不存在');
@@ -137,6 +160,52 @@ export class UserService {
     const user = await this.repo.findOne({ where: { id: userId }, select: ['superiorId'] });
     if (!user?.superiorId) return null;
     return this.repo.findOne({ where: { id: user.superiorId } });
+  }
+
+  /**
+   * 获取当前用户可分配的用户列表
+   * 用于客户/线索分配功能
+   */
+  async getAssignableUsers(userId: string): Promise<User[]> {
+    const currentUser = await this.repo.findOne({ where: { id: userId } });
+    if (!currentUser) return [];
+
+    // 1. 管理员和总裁可以分配给所有活跃用户
+    if ([UserRole.ADMIN, UserRole.CEO].includes(currentUser.role)) {
+      return this.repo.find({
+        where: { status: UserStatus.ACTIVE },
+        select: ['id', 'name', 'role', 'department', 'position'],
+      });
+    }
+
+    // 2. 营销副总裁可以分配给销售相关角色
+    if (currentUser.role === UserRole.CMO) {
+      return this.repo.find({
+        where: {
+          status: UserStatus.ACTIVE,
+          role: In([UserRole.SALES_MANAGER, UserRole.SALES, UserRole.BUSINESS]),
+        },
+        select: ['id', 'name', 'role', 'department', 'position'],
+      });
+    }
+
+    // 3. 销售经理可以分配给下属
+    if (currentUser.role === UserRole.SALES_MANAGER) {
+      const subordinateIds = await this.dataPermissionService.getAccessibleUserIds(userId);
+      if (!subordinateIds) {
+        return this.repo.find({
+          where: { status: UserStatus.ACTIVE },
+          select: ['id', 'name', 'role', 'department', 'position'],
+        });
+      }
+      return this.repo.find({
+        where: { id: In(subordinateIds), status: UserStatus.ACTIVE },
+        select: ['id', 'name', 'role', 'department', 'position'],
+      });
+    }
+
+    // 其他角色没有分配权限
+    return [];
   }
 
   private async checkUnique(dto: any) {
